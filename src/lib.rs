@@ -43,7 +43,7 @@ use actix_web::{
 
 use futures::{future, Future, Stream};
 
-use std::{io::Write, path::Path};
+use std::{io::Write, path::{Path, PathBuf}};
 
 #[derive(Debug)]
 pub struct Parts {
@@ -229,17 +229,19 @@ impl File {
 cfg_if! {
     if #[cfg(unix)] {
         impl File {
-            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
+            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, ::tempfile::PersistError> {
                 use std::os::unix::fs::PermissionsExt;
                 let permissions = ::std::fs::Permissions::from_mode(0o644);
                 let _ = ::std::fs::set_permissions(self.inner.path(), permissions);
-                self.inner.persist(&dir.as_ref().join(&self.sanitized_file_name))
+                let new_path = dir.as_ref().join(&self.sanitized_file_name);
+                self.inner.persist(&new_path).map(|_| new_path )
             }
         }
     } else {
         impl File {
-            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
-                self.inner.persist(&dir.as_ref().join(&self.sanitized_file_name))
+            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, ::tempfile::PersistError> {
+                let new_path = dir.as_ref().join(&self.sanitized_file_name);
+                self.inner.persist(&new_path).map(|_| new_path )
             }
         }
     }

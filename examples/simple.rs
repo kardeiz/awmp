@@ -14,18 +14,11 @@ pub fn upload(mut parts: awmp::Parts) -> Result<HttpResponse, ::actix_web::Error
 
     println!("Text parts as query string: {:?}", qs);
 
-    let files = parts.files.remove("upload");
+    let files = parts.files.remove("upload").into_iter()
+        .map(|x| x.persist("/tmp") )
+        .collect::<Result<Vec<_>, _>>();
 
-    for mut file in files {
-        println!("File name: {:?}", &file.file_name());
-
-        let mut written_file = file.persist("/tmp/").unwrap();
-
-        ::std::io::Seek::seek(&mut written_file, std::io::SeekFrom::Start(0));
-        let mut buf = String::new();
-        ::std::io::Read::read_to_string(&mut written_file, &mut buf);
-        println!("String contents of file: {:?}", &buf);
-    }
+    println!("{:?}", &files);
 
     Ok(HttpResponse::Ok().body("THANKS"))
 }

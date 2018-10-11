@@ -1,7 +1,7 @@
 [package]
 authors = ["Jacob Brown <kardeiz@gmail.com>"]
 name = "awmp"
-version = "0.1.0"
+version = "0.2.0"
 description = "An easy to use wrapper around multipart fields for Actix web"
 keywords = ["actix", "actix-web", "multipart"]
 license = "MIT"
