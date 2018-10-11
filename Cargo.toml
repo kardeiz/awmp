@@ -1,0 +1,22 @@
+[package]
+authors = ["Jacob Brown <kardeiz@gmail.com>"]
+name = "awmp"
+version = "0.1.0"
+description = "An easy to use wrapper around multipart fields for Actix web"
+keywords = ["actix", "actix-web", "multipart"]
+license = "MIT"
+repository = "https://github.com/kardeiz/awmp"
+readme = "README.md"
+
+[dependencies]
+actix-web = "0.7"
+cfg-if = "0.1.5"
+futures = "0.1.25"
+mime = "0.3.9"
+mime_guess = "2.0.0-alpha"
+tempfile = "3.0.4"
+url = "1.7.1"
+
+[dependencies.uuid]
+features = ["v4"]
+version = "0.7.1"
