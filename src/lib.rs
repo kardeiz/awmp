@@ -11,7 +11,7 @@ extern crate cfg_if;
 
 mod utils {
     // Copied from app_dirs: https://docs.rs/app_dirs/1.2.1/src/app_dirs/utils.rs.html
-    pub fn sanitized_filename(component: &str) -> String {
+    pub fn sanitized_file_name(component: &str) -> String {
         let mut buf = String::with_capacity(component.len());
         for (i, c) in component.chars().enumerate() {
             let is_lower = 'a' <= c && c <= 'z';
@@ -37,22 +37,18 @@ mod utils {
 use tempfile::NamedTempFile;
 
 use actix_web::{
-    dev, error,
-    http::header::{ContentDisposition, DispositionParam},
-    multipart, Error, FromRequest, HttpMessage, HttpRequest
+    dev, error, http::header::DispositionParam, multipart, Error, FromRequest, HttpMessage,
+    HttpRequest
 };
 
-use futures::{future, Future, IntoFuture, Stream};
+use futures::{future, Future, Stream};
 
-use std::{
-    io::Write,
-    path::{Path, PathBuf}
-};
+use std::{io::Write, path::Path};
 
 #[derive(Debug)]
 pub struct Parts {
-    texts: TextParts,
-    files: FileParts
+    pub texts: TextParts,
+    pub files: FileParts
 }
 
 #[derive(Debug)]
@@ -68,8 +64,9 @@ pub enum Part {
 
 #[derive(Debug)]
 pub struct File {
-    pub inner: NamedTempFile,
-    pub file_name: String
+    inner: NamedTempFile,
+    pub original_file_name: String,
+    pub sanitized_file_name: String
 }
 
 pub fn handle_multipart_item(
@@ -145,8 +142,16 @@ pub fn handle_field(
                 .and_then(move |bytes| {
                     let rt = file
                         .write_all(bytes.as_ref())
-                        .map(|_| Some((field_name, Part::File(File { inner: file, file_name }))))
-                        .map_err(|e| error::MultipartError::Payload(error::PayloadError::Io(e)));
+                        .map(|_| {
+                            Some((
+                                field_name,
+                                Part::File(File {
+                                    inner: file,
+                                    sanitized_file_name: utils::sanitized_file_name(&file_name),
+                                    original_file_name: file_name
+                                })
+                            ))
+                        }).map_err(|e| error::MultipartError::Payload(error::PayloadError::Io(e)));
                     future::result(rt)
                 }).map_err(error::ErrorInternalServerError);
 
@@ -217,20 +222,24 @@ impl FileParts {
     }
 }
 
+impl File {
+    pub fn file_name(&self) -> &str { &self.sanitized_file_name }
+}
+
 cfg_if! {
     if #[cfg(unix)] {
         impl File {
-            fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
+            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
                 use std::os::unix::fs::PermissionsExt;
                 let permissions = ::std::fs::Permissions::from_mode(0o644);
                 let _ = ::std::fs::set_permissions(self.inner.path(), permissions);
-                self.inner.persist(&dir.as_ref().join(utils::sanitized_filename(&self.file_name)))
+                self.inner.persist(&dir.as_ref().join(&self.sanitized_file_name))
             }
         }
     } else {
         impl File {
-            fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
-                self.inner.persist(&dir.as_ref().join(utils::sanitized_filename(&self.file_name)))
+            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<::std::fs::File, ::tempfile::PersistError> {
+                self.inner.persist(&dir.as_ref().join(&self.sanitized_file_name))
             }
         }
     }
