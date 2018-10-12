@@ -19,7 +19,7 @@ pub fn upload(mut parts: awmp::Parts) -> Result<HttpResponse, ::actix_web::Error
         .remove("upload")
         .into_iter()
         .map(|x| x.persist("/tmp"))
-        .collect::<Result<Vec<_>, _>>();
+        .collect::<Result<Vec<_>, _>>().unwrap_or_default();
 
     println!("{:?}", &files);
 
