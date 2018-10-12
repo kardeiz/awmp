@@ -14,8 +14,11 @@ pub fn upload(mut parts: awmp::Parts) -> Result<HttpResponse, ::actix_web::Error
 
     println!("Text parts as query string: {:?}", qs);
 
-    let files = parts.files.remove("upload").into_iter()
-        .map(|x| x.persist("/tmp") )
+    let files = parts
+        .files
+        .remove("upload")
+        .into_iter()
+        .map(|x| x.persist("/tmp"))
         .collect::<Result<Vec<_>, _>>();
 
     println!("{:?}", &files);
@@ -28,7 +31,8 @@ fn main() -> Result<(), Box<::std::error::Error>> {
         App::with_state(()).resource("/", |r| {
             r.method(http::Method::POST).with(upload);
         })
-    }).bind("127.0.0.1:3000")?
+    })
+    .bind("127.0.0.1:3000")?
     .run();
 
     Ok(())

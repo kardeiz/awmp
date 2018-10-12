@@ -6,9 +6,6 @@ extern crate tempfile;
 extern crate url;
 extern crate uuid;
 
-#[macro_use]
-extern crate cfg_if;
-
 mod utils {
     // Copied from app_dirs: https://docs.rs/app_dirs/1.2.1/src/app_dirs/utils.rs.html
     pub fn sanitized_file_name(component: &str) -> String {
@@ -43,7 +40,10 @@ use actix_web::{
 
 use futures::{future, Future, Stream};
 
-use std::{io::Write, path::{Path, PathBuf}};
+use std::{
+    io::Write,
+    path::{Path, PathBuf}
+};
 
 #[derive(Debug)]
 pub struct Parts {
@@ -69,7 +69,7 @@ pub struct File {
     pub sanitized_file_name: String
 }
 
-pub fn handle_multipart_item(
+fn handle_multipart_item(
     item: multipart::MultipartItem<dev::Payload>
 ) -> Box<Stream<Item = Option<(String, Part)>, Error = Error>> {
     match item {
@@ -80,7 +80,7 @@ pub fn handle_multipart_item(
     }
 }
 
-pub fn handle_field(
+fn handle_field(
     field: multipart::Field<dev::Payload>
 ) -> Box<Future<Item = Option<(String, Part)>, Error = Error>> {
     let mut field_name_opt = None;
@@ -115,7 +115,8 @@ pub fn handle_field(
                     let rt =
                         String::from_utf8(bytes.to_vec()).ok().map(|s| (field_name, Part::Text(s)));
                     future::ok(rt)
-                }).map_err(error::ErrorInternalServerError);
+                })
+                .map_err(error::ErrorInternalServerError);
             Box::new(rt)
         }
         (file_name_opt, mt) => {
@@ -151,9 +152,11 @@ pub fn handle_field(
                                     original_file_name: file_name
                                 })
                             ))
-                        }).map_err(|e| error::MultipartError::Payload(error::PayloadError::Io(e)));
+                        })
+                        .map_err(|e| error::MultipartError::Payload(error::PayloadError::Io(e)));
                     future::result(rt)
-                }).map_err(error::ErrorInternalServerError);
+                })
+                .map_err(error::ErrorInternalServerError);
 
             Box::new(rt)
         }
@@ -168,7 +171,7 @@ impl<T> FromRequest<T> for Parts {
         let parts = req
             .multipart()
             .map_err(error::ErrorInternalServerError)
-            .map(move |mp| handle_multipart_item(mp))
+            .map(handle_multipart_item)
             .flatten()
             .filter_map(|x| x)
             .collect()
@@ -224,25 +227,33 @@ impl FileParts {
 
 impl File {
     pub fn file_name(&self) -> &str { &self.sanitized_file_name }
+
+    pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, ::tempfile::PersistError> {
+        let new_path = dir.as_ref().join(&self.sanitized_file_name);
+        self.inner.persist(&new_path).map(|_| new_path)
+    }
 }
 
-cfg_if! {
-    if #[cfg(unix)] {
-        impl File {
-            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, ::tempfile::PersistError> {
-                use std::os::unix::fs::PermissionsExt;
-                let permissions = ::std::fs::Permissions::from_mode(0o644);
-                let _ = ::std::fs::set_permissions(self.inner.path(), permissions);
-                let new_path = dir.as_ref().join(&self.sanitized_file_name);
-                self.inner.persist(&new_path).map(|_| new_path )
-            }
-        }
-    } else {
-        impl File {
-            pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, ::tempfile::PersistError> {
-                let new_path = dir.as_ref().join(&self.sanitized_file_name);
-                self.inner.persist(&new_path).map(|_| new_path )
-            }
-        }
+#[cfg(unix)]
+impl File {
+    pub fn persist_with_permissions<P: AsRef<Path>>(
+        self,
+        dir: P,
+        mode: u32
+    ) -> Result<PathBuf, ::tempfile::PersistError>
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = ::std::fs::Permissions::from_mode(mode);
+        let _ = ::std::fs::set_permissions(self.inner.path(), permissions);
+        let new_path = dir.as_ref().join(&self.sanitized_file_name);
+        self.inner.persist(&new_path).map(|_| new_path)
+    }
+
+    pub fn persist_with_open_permissions<P: AsRef<Path>>(
+        self,
+        dir: P
+    ) -> Result<PathBuf, ::tempfile::PersistError>
+    {
+        self.persist_with_permissions(dir, 0o644)
     }
 }
