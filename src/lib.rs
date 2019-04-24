@@ -41,7 +41,7 @@ use actix_web::{
 use futures::{future, Future, Stream};
 
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf}
 };
 
@@ -67,6 +67,12 @@ pub struct File {
     inner: NamedTempFile,
     pub original_file_name: String,
     pub sanitized_file_name: String
+}
+
+impl Read for File {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, ::std::io::Error> {
+        self.inner.read(buf)
+    }
 }
 
 fn handle_multipart_item(
