@@ -2,38 +2,35 @@ extern crate actix_web;
 extern crate awmp;
 extern crate futures;
 
-use futures::future::Future;
+use crate::actix_web::FromRequest;
 
-use actix_web::{
-    dev, error, http, middleware, multipart, server, App, Error, FromRequest, FutureResponse,
-    HttpMessage, HttpRequest, HttpResponse
-};
-
-pub fn upload(mut parts: awmp::Parts) -> Result<HttpResponse, ::actix_web::Error> {
+pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
     let qs = parts.texts.to_query_string();
 
-    println!("Text parts as query string: {:?}", qs);
-
     let files = parts
-        .files
-        .remove("upload")
+        .files.0
         .into_iter()
-        .map(|x| x.persist("/tmp"))
-        .collect::<Result<Vec<_>, _>>().unwrap_or_default();
+        .map(|(name, tf)| tf.persist("/tmp").map(|f| (name, f)))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(name, f)| format!("{}: {}", name, f.display()))
+        .collect::<Vec<_>>()
+        .join(", ");
 
-    println!("{:?}", &files);
+    let body = format!("Text parts: {}, File parts: {}\r\n", &qs, &files);
 
-    Ok(HttpResponse::Ok().body("THANKS"))
+    Ok(actix_web::HttpResponse::Ok().body(body))
 }
 
 fn main() -> Result<(), Box<::std::error::Error>> {
-    server::new(|| {
-        App::with_state(()).resource("/", |r| {
-            r.method(http::Method::POST).with(upload);
-        })
+    actix_web::HttpServer::new(move || {
+        actix_web::App::new()
+            .data(awmp::Parts::configure(|cfg| cfg.with_text_limit(20)))
+            .route("/", actix_web::web::post().to(upload))
     })
-    .bind("127.0.0.1:3000")?
-    .run();
+    .bind("0.0.0.0:3000")?
+    .run()?;
 
     Ok(())
 }
