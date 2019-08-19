@@ -1,14 +1,9 @@
-extern crate actix_web;
-extern crate awmp;
-extern crate futures;
-
-use crate::actix_web::FromRequest;
-
-pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
+pub fn upload(parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
     let qs = parts.texts.to_query_string();
 
     let files = parts
-        .files.0
+        .files
+        .into_inner()
         .into_iter()
         .map(|(name, tf)| tf.persist("/tmp").map(|f| (name, f)))
         .collect::<Result<Vec<_>, _>>()
@@ -25,9 +20,7 @@ pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_w
 
 fn main() -> Result<(), Box<::std::error::Error>> {
     actix_web::HttpServer::new(move || {
-        actix_web::App::new()
-            .data(awmp::Parts::configure(|cfg| cfg.with_text_limit(20)))
-            .route("/", actix_web::web::post().to(upload))
+        actix_web::App::new().route("/", actix_web::web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
     .run()?;

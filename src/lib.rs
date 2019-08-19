@@ -1,3 +1,52 @@
+/*!
+A convenience library for working with multipart/form-data in [`actix-web`](https://docs.rs/actix-web) 1.x.
+
+This library uses [`actix-multipart`](https://docs.rs/actix-multipart/0.1.3/actix_multipart/) internally, and is not a replacement
+for `actix-multipart`. It saves multipart file data to tempfiles and collects text data, handling all blocking I/O operations.
+
+Provides some configuration options in [PartsConfig](struct.PartsConfig.html):
+
+* **text_limit**: Any text field data larger than this number of bytes will be saved as a tempfile
+* **file_limit**: Any file field data larger than this number of bytes will be discarded/ignored
+* **file_fields**: Always treat fields with these names as file fields
+* **temp_dir**: Use this folder as the tmp directory, rather than `tempfile`'s default
+
+
+# Usage
+
+```rust,no_run
+use actix_web::FromRequest;
+
+pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
+    let qs = parts.texts.to_query_string();
+
+    let file_parts = parts
+        .files
+        .remove("file")
+        .pop()
+        .and_then(|f| f.persist("/tmp").ok())
+        .map(|f| format!("File uploaded to: {}", f.display()))
+        .unwrap_or_default();
+
+    let body = [format!("Text parts: {}", &qs), file_parts].join(", ");
+
+    Ok(actix_web::HttpResponse::Ok().body(body))
+}
+
+fn main() -> Result<(), Box<::std::error::Error>> {
+    actix_web::HttpServer::new(move || {
+        actix_web::App::new()
+            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1_000_000)))
+            .route("/", actix_web::web::post().to(upload))
+    })
+    .bind("0.0.0.0:3000")?
+    .run()?;
+
+    Ok(())
+}
+```
+*/
+
 use actix_multipart::{Field, Multipart};
 use actix_web::{dev, error, http, web, FromRequest, HttpRequest};
 use bytes::Bytes;
@@ -44,11 +93,11 @@ pub struct Parts {
 
 /// The text parts of a multipart/form-data request
 #[derive(Debug)]
-pub struct TextParts(pub Vec<(String, Bytes)>);
+pub struct TextParts(Vec<(String, Bytes)>);
 
 /// The file parts of a multipart/form-data request
 #[derive(Debug)]
-pub struct FileParts(pub Vec<(String, File)>);
+pub struct FileParts(Vec<(String, File)>);
 
 /// A tempfile wrapper that includes the original filename
 #[derive(Debug)]
@@ -58,10 +107,98 @@ pub struct File {
     sanitized_file_name: String,
 }
 
-#[derive(Debug)]
-enum Part {
-    Text(Bytes),
-    File(File),
+impl TextParts {
+    pub fn into_inner(self) -> Vec<(String, Bytes)> {
+        self.0
+    }
+
+    pub fn as_pairs(&self) -> Vec<(&str, &str)> {
+        self.0
+            .iter()
+            .filter_map(|(key, val)| match std::str::from_utf8(val) {
+                Ok(val) => Some((key.as_str(), val)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Re-encodes the string-like text parts to a query string
+    pub fn to_query_string(&self) -> String {
+        let mut qs = url::form_urlencoded::Serializer::new(String::new());
+
+        for (key, val) in self.0.iter().filter_map(|(key, val)| match std::str::from_utf8(val) {
+            Ok(val) => Some((key, val)),
+            _ => None,
+        }) {
+            qs.append_pair(&key, &val);
+        }
+
+        qs.finish()
+    }
+}
+
+impl FileParts {
+    pub fn into_inner(self) -> Vec<(String, File)> {
+        self.0
+    }
+
+    /// Returns any files for the given name and removes them from the container
+    pub fn remove(&mut self, key: &str) -> Vec<File> {
+        let mut taken = Vec::with_capacity(self.0.len());
+        let mut untaken = Vec::with_capacity(self.0.len());
+
+        for (k, v) in self.0.drain(..) {
+            if k == key {
+                taken.push(v);
+            } else {
+                untaken.push((k, v));
+            }
+        }
+
+        self.0 = untaken;
+
+        taken
+    }
+}
+
+impl File {
+    /// The filename provided in the multipart/form-data request
+    pub fn original_file_name(&self) -> Option<&str> {
+        self.original_file_name.as_ref().map(|x| x.as_str())
+    }
+
+    /// The sanitized version of the original file name, or generated name if none provided
+    pub fn sanitized_file_name(&self) -> &str {
+        &self.sanitized_file_name
+    }
+
+    /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
+    /// the full path
+    pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
+        let new_path = dir.as_ref().join(&self.sanitized_file_name);
+        self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
+    }
+}
+
+#[cfg(unix)]
+impl File {
+    /// Persist the tempfile with specific permissions on Unix
+    pub fn persist_with_permissions<P: AsRef<Path>>(
+        self,
+        dir: P,
+        mode: u32,
+    ) -> Result<PathBuf, Error> {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(mode);
+        std::fs::set_permissions(self.inner.path(), permissions).map_err(Error::Io)?;
+        let new_path = dir.as_ref().join(&self.sanitized_file_name);
+        self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
+    }
+
+    /// Persist the tempfile with 644 permissions on Unix
+    pub fn persist_with_open_permissions<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
+        self.persist_with_permissions(dir, 0o644)
+    }
 }
 
 /// `FromRequest` configurator
@@ -132,6 +269,12 @@ impl FromRequest for Parts {
 
         Box::new(rt)
     }
+}
+
+#[derive(Debug)]
+enum Part {
+    Text(Bytes),
+    File(File),
 }
 
 enum Buffer {
@@ -311,80 +454,4 @@ fn handle_field(
     });
 
     Either::B(rt)
-}
-
-impl TextParts {
-    /// Re-encodes the string-like text parts to a query string
-    pub fn to_query_string(&self) -> String {
-        let mut qs = url::form_urlencoded::Serializer::new(String::new());
-
-        for (key, val) in self.0.iter().flat_map(|(key, val)| match std::str::from_utf8(val) {
-            Ok(val) => Some((key, val)),
-            _ => None,
-        }) {
-            qs.append_pair(&key, &val);
-        }
-
-        qs.finish()
-    }
-}
-
-impl FileParts {
-    /// Returns any files for the given names and removes them from the container
-    pub fn remove(&mut self, key: &str) -> Vec<File> {
-        let mut taken = Vec::with_capacity(self.0.len());
-        let mut untaken = Vec::with_capacity(self.0.len());
-
-        for (k, v) in self.0.drain(..) {
-            if k == key {
-                taken.push(v);
-            } else {
-                untaken.push((k, v));
-            }
-        }
-
-        self.0 = untaken;
-
-        taken
-    }
-}
-
-impl File {
-    /// The filename provided in the multipart/form-data request
-    pub fn original_file_name(&self) -> Option<&str> {
-        self.original_file_name.as_ref().map(|x| x.as_str())
-    }
-
-    /// The sanitized version of the original file name, or generated name if none provided
-    pub fn sanitized_file_name(&self) -> &str {
-        &self.sanitized_file_name
-    }
-
-    /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
-    /// the full path
-    pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, tempfile::PersistError> {
-        let new_path = dir.as_ref().join(&self.sanitized_file_name);
-        self.inner.persist(&new_path).map(|_| new_path)
-    }
-}
-
-#[cfg(unix)]
-impl File {
-    /// Persist the tempfile with specific permissions on Unix
-    pub fn persist_with_permissions<P: AsRef<Path>>(
-        self,
-        dir: P,
-        mode: u32,
-    ) -> Result<PathBuf, Error> {
-        use std::os::unix::fs::PermissionsExt;
-        let permissions = std::fs::Permissions::from_mode(mode);
-        std::fs::set_permissions(self.inner.path(), permissions).map_err(Error::Io)?;
-        let new_path = dir.as_ref().join(&self.sanitized_file_name);
-        self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
-    }
-
-    /// Persist the tempfile with 644 permissions on Unix
-    pub fn persist_with_open_permissions<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
-        self.persist_with_permissions(dir, 0o644)
-    }
 }
