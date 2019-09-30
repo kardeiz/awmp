@@ -18,9 +18,7 @@ pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_w
 
 fn main() -> Result<(), Box<::std::error::Error>> {
     actix_web::HttpServer::new(move || {
-        actix_web::App::new()
-            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1_000_000)))
-            .route("/", actix_web::web::post().to(upload))
+        actix_web::App::new().route("/", actix_web::web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
     .run()?;

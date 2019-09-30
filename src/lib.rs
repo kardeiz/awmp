@@ -64,6 +64,7 @@ use std::path::{Path, PathBuf};
 pub enum Error {
     Io(std::io::Error),
     TempFilePersistError(tempfile::PersistError),
+    FileTooLarge { limit: usize, file_name: Option<String> },
 }
 
 impl std::fmt::Display for Error {
@@ -71,6 +72,13 @@ impl std::fmt::Display for Error {
         match self {
             Error::Io(ref x) => x.fmt(f),
             Error::TempFilePersistError(ref x) => x.fmt(f),
+            Error::FileTooLarge { limit, ref file_name } => {
+                if let Some(ref file_name) = file_name {
+                    write!(f, "File is too large (limit: {} bytes): {}", limit, file_name)
+                } else {
+                    write!(f, "File is too large (limit: {} bytes)", limit)
+                }
+            }
         }
     }
 }
@@ -80,6 +88,7 @@ impl std::error::Error for Error {
         match self {
             Error::Io(ref x) => Some(x),
             Error::TempFilePersistError(ref x) => Some(x),
+            _ => None,
         }
     }
 }
@@ -97,7 +106,7 @@ pub struct TextParts(Vec<(String, Bytes)>);
 
 /// The file parts of a multipart/form-data request
 #[derive(Debug)]
-pub struct FileParts(Vec<(String, File)>);
+pub struct FileParts(Vec<(String, Result<File, Error>)>);
 
 /// A tempfile wrapper that includes the original filename
 #[derive(Debug)]
@@ -138,18 +147,34 @@ impl TextParts {
 }
 
 impl FileParts {
-    pub fn into_inner(self) -> Vec<(String, File)> {
+
+    pub fn into_inner(self) -> Vec<(String, Result<File, Error>)> {
         self.0
     }
 
+    /// Get the first non-error file for given name
+    pub fn first(&self, key: &str) -> Option<&File> {
+        self.0
+            .iter()
+            .filter_map(|(k, v)| if let Ok(ref v) = v { Some((k, v)) } else { None })
+            .filter(|(k, _)| k.as_str() == key)
+            .map(|(_, v)| v)
+            .next()
+    }
+
     /// Returns any files for the given name and removes them from the container
+    #[deprecated(note = "Please use `take` instead")]
     pub fn remove(&mut self, key: &str) -> Vec<File> {
+        self.take(key)
+    }
+
+    pub fn take(&mut self, key: &str) -> Vec<File> {
         let mut taken = Vec::with_capacity(self.0.len());
         let mut untaken = Vec::with_capacity(self.0.len());
 
         for (k, v) in self.0.drain(..) {
-            if k == key {
-                taken.push(v);
+            if k == key && v.is_ok() {
+                taken.push(v.unwrap());
             } else {
                 untaken.push((k, v));
             }
@@ -238,7 +263,7 @@ impl PartsConfig {
 
 impl FromRequest for Parts {
     type Error = actix_web::Error;
-    type Future = Box<Future<Item = Self, Error = Self::Error>>;
+    type Future = Box<dyn Future<Item = Self, Error = Self::Error>>;
     type Config = PartsConfig;
 
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
@@ -254,7 +279,7 @@ impl FromRequest for Parts {
             .map(|parts| {
                 let mut texts = Vec::with_capacity(parts.len());
                 let mut files = Vec::with_capacity(parts.len());
-                for (name, p) in parts.into_iter().flatten() {
+                for (name, p) in parts.into_iter() {
                     match p {
                         Part::Text(s) => {
                             texts.push((name, s));
@@ -274,18 +299,23 @@ impl FromRequest for Parts {
 #[derive(Debug)]
 enum Part {
     Text(Bytes),
-    File(File),
+    File(Result<File, Error>),
 }
 
+#[derive(Debug)]
 enum Buffer {
     Cursor(Cursor<Vec<u8>>),
     File(NamedTempFile),
 }
 
+struct FileTooLarge {
+    limit: usize,
+}
+
 fn handle_field(
     opt_cfg: Option<web::Data<PartsConfig>>,
     field: Field,
-) -> impl Future<Item = Option<(String, Part)>, Error = error::Error> {
+) -> impl Future<Item = (String, Part), Error = error::Error> {
     let mut name_opt = None;
     let mut file_name_opt = None;
 
@@ -337,7 +367,7 @@ fn handle_field(
     };
 
     let rt = future::loop_fn(
-        future::Either::A(future::ok::<_, error::Error>((field, buffer, 0))),
+        Either::A(future::ok::<_, error::Error>((field, buffer, 0))),
         move |state| {
             let opt_cfg = opt_cfg.clone();
             state.and_then(move |(stream, mut buffer, mut len)| {
@@ -349,13 +379,14 @@ fn handle_field(
 
                             len += bytes.len();
 
-                            if opt_cfg
-                                .as_ref()
-                                .and_then(|x| x.file_limit)
-                                .map(|x| len > x)
-                                .unwrap_or(false)
-                            {
-                                return future::Loop::Break(future::ok(None));
+                            if let Some(limit) = opt_cfg.as_ref().and_then(|x| x.file_limit) {
+                                if len > limit {
+                                    if let Buffer::File(_) = buffer {
+                                        return future::Loop::Break(future::ok(Either::A(
+                                            FileTooLarge { limit },
+                                        )));
+                                    }
+                                }
                             }
 
                             let mut opt_cursor = None;
@@ -421,16 +452,16 @@ fn handle_field(
                                 }
                             }
                         }
-                        None => future::Loop::Break(future::ok(Some(buffer))),
+                        None => future::Loop::Break(future::ok(Either::B(buffer))),
                     },
                 )
             })
         },
     )
     .flatten()
-    .map(move |opt_buffer| match opt_buffer {
-        Some(Buffer::Cursor(cursor)) => Some((name, Part::Text(Bytes::from(cursor.into_inner())))),
-        Some(Buffer::File(file)) => {
+    .map(move |buffer| match buffer {
+        Either::B(Buffer::Cursor(cursor)) => (name, Part::Text(Bytes::from(cursor.into_inner()))),
+        Either::B(Buffer::File(file)) => {
             let sanitized_file_name = match file_name_opt {
                 Some(ref s) => sanitize_filename::sanitize(s),
                 None => {
@@ -441,16 +472,18 @@ fn handle_field(
                     }
                 }
             };
-            Some((
+            (
                 name,
-                Part::File(File {
+                Part::File(Ok(File {
                     inner: file,
                     sanitized_file_name,
                     original_file_name: file_name_opt,
-                }),
-            ))
+                })),
+            )
         }
-        None => None,
+        Either::A(FileTooLarge { limit }) => {
+            (name, Part::File(Err(Error::FileTooLarge { limit, file_name: file_name_opt })))
+        }
     });
 
     Either::B(rt)
