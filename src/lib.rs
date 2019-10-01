@@ -121,13 +121,12 @@ impl TextParts {
         self.0
     }
 
+    /// Returns the field names and values as `&str`s. If values are non-UTF8, use
+    /// `into_inner` to access values
     pub fn as_pairs(&self) -> Vec<(&str, &str)> {
         self.0
             .iter()
-            .filter_map(|(key, val)| match std::str::from_utf8(val) {
-                Ok(val) => Some((key.as_str(), val)),
-                _ => None,
-            })
+            .flat_map(|(key, val)| std::str::from_utf8(val).map(|val| (key.as_str(), val)))
             .collect()
     }
 
@@ -135,10 +134,11 @@ impl TextParts {
     pub fn to_query_string(&self) -> String {
         let mut qs = url::form_urlencoded::Serializer::new(String::new());
 
-        for (key, val) in self.0.iter().filter_map(|(key, val)| match std::str::from_utf8(val) {
-            Ok(val) => Some((key, val)),
-            _ => None,
-        }) {
+        for (key, val) in self
+            .0
+            .iter()
+            .flat_map(|(key, val)| std::str::from_utf8(val).map(|val| (key.as_str(), val)))
+        {
             qs.append_pair(&key, &val);
         }
 
@@ -147,19 +147,13 @@ impl TextParts {
 }
 
 impl FileParts {
-
     pub fn into_inner(self) -> Vec<(String, Result<File, Error>)> {
         self.0
     }
 
     /// Get the first non-error file for given name
     pub fn first(&self, key: &str) -> Option<&File> {
-        self.0
-            .iter()
-            .filter_map(|(k, v)| if let Ok(ref v) = v { Some((k, v)) } else { None })
-            .filter(|(k, _)| k.as_str() == key)
-            .map(|(_, v)| v)
-            .next()
+        self.0.iter().filter(|(k, _)| k.as_str() == key).flat_map(|(_, v)| v.as_ref()).next()
     }
 
     /// Returns any files for the given name and removes them from the container
@@ -312,6 +306,16 @@ struct FileTooLarge {
     limit: usize,
 }
 
+fn new_temp_file(
+    opt_cfg: Option<web::Data<PartsConfig>>,
+) -> impl Future<Item = NamedTempFile, Error = error::Error> {
+    web::block(move || match opt_cfg.as_ref().and_then(|x| x.temp_dir.as_ref()) {
+        Some(temp_dir) => NamedTempFile::new_in(temp_dir),
+        _ => NamedTempFile::new(),
+    })
+    .map_err(error::ErrorInternalServerError)
+}
+
 fn handle_field(
     opt_cfg: Option<web::Data<PartsConfig>>,
     field: Field,
@@ -342,7 +346,7 @@ fn handle_field(
 
     let mime_type = field.content_type().clone();
 
-    let buffer = match (
+    let buffer_fut = match (
         file_name_opt.as_ref(),
         opt_cfg
             .as_ref()
@@ -351,28 +355,16 @@ fn handle_field(
             .flatten()
             .any(|x| x == &name),
     ) {
-        (Some(_), _) | (_, true) => {
-            let file = match opt_cfg.as_ref().and_then(|x| x.temp_dir.as_ref()) {
-                Some(temp_dir) => NamedTempFile::new_in(temp_dir),
-                _ => NamedTempFile::new(),
-            };
-            match file {
-                Ok(file) => Buffer::File(file),
-                Err(e) => {
-                    return Either::A(future::err(error::ErrorInternalServerError(e)));
-                }
-            }
-        }
-        _ => Buffer::Cursor(Cursor::new(Vec::new())),
+        (Some(_), _) | (_, true) => Either::A(new_temp_file(opt_cfg.clone()).map(Buffer::File)),
+        _ => Either::B(future::ok(Buffer::Cursor(Cursor::new(Vec::new())))),
     };
 
-    let rt = future::loop_fn(
-        Either::A(future::ok::<_, error::Error>((field, buffer, 0))),
-        move |state| {
+    let rt =
+        future::loop_fn(Either::A(buffer_fut.map(|buffer| (field, buffer, 0))), move |state| {
             let opt_cfg = opt_cfg.clone();
-            state.and_then(move |(stream, mut buffer, mut len)| {
+            state.and_then(move |(stream, buffer, mut len)| {
                 let opt_cfg = opt_cfg.clone();
-                stream.into_future().map_err(|(e, _)| error::ErrorInternalServerError(e)).map(
+                stream.into_future().map_err(|(e, _)| error::ErrorInternalServerError(e)).and_then(
                     move |(bytes, new_stream)| match bytes {
                         Some(bytes) => {
                             let opt_cfg = opt_cfg.clone();
@@ -382,8 +374,8 @@ fn handle_field(
                             if let Some(limit) = opt_cfg.as_ref().and_then(|x| x.file_limit) {
                                 if len > limit {
                                     if let Buffer::File(_) = buffer {
-                                        return future::Loop::Break(future::ok(Either::A(
-                                            FileTooLarge { limit },
+                                        return Either::B(future::ok(future::Loop::Break(
+                                            future::ok(Either::A(FileTooLarge { limit })),
                                         )));
                                     }
                                 }
@@ -391,49 +383,35 @@ fn handle_field(
 
                             let mut opt_cursor = None;
 
-                            if opt_cfg
+                            let buffer_fut = if opt_cfg
                                 .as_ref()
                                 .and_then(|x| x.text_limit)
                                 .map(|x| len > x)
                                 .unwrap_or(false)
                             {
-                                let new = match buffer {
+                                match buffer {
                                     Buffer::Cursor(cursor) => {
                                         opt_cursor = Some(cursor);
-                                        let rt = match opt_cfg
-                                            .as_ref()
-                                            .and_then(|x| x.temp_dir.as_ref())
-                                        {
-                                            Some(temp_dir) => NamedTempFile::new_in(temp_dir),
-                                            _ => NamedTempFile::new(),
-                                        }
-                                        .map_err(error::ErrorInternalServerError)
-                                        .map(Buffer::File);
-
-                                        match rt {
-                                            Ok(rt) => rt,
-                                            Err(e) => {
-                                                return future::Loop::Break(future::err(e));
-                                            }
-                                        }
+                                        Either::A(new_temp_file(opt_cfg.clone()).map(Buffer::File))
                                     }
-                                    x => x,
-                                };
-                                buffer = new;
-                            }
+                                    x => Either::B(future::ok(x)),
+                                }
+                            } else {
+                                Either::B(future::ok(buffer))
+                            };
 
-                            match buffer {
+                            Either::A(buffer_fut.map(move |buffer| match buffer {
                                 Buffer::Cursor(mut cursor) => {
                                     if let Err(e) = cursor.write_all(bytes.as_ref()) {
                                         return future::Loop::Break(future::err(
                                             error::ErrorInternalServerError(e),
                                         ));
                                     }
-                                    future::Loop::Continue(future::Either::A(future::ok((
+                                    future::Loop::Continue(Either::B(Either::A(future::ok((
                                         new_stream,
                                         Buffer::Cursor(cursor),
                                         len,
-                                    ))))
+                                    )))))
                                 }
                                 Buffer::File(mut file) => {
                                     let rt = web::block(move || {
@@ -448,43 +426,46 @@ fn handle_field(
                                     })
                                     .map(move |buffer| (new_stream, buffer, len))
                                     .map_err(error::ErrorInternalServerError);
-                                    future::Loop::Continue(future::Either::B(rt))
+                                    future::Loop::Continue(Either::B(Either::B(rt)))
                                 }
-                            }
+                            }))
                         }
-                        None => future::Loop::Break(future::ok(Either::B(buffer))),
+                        None => Either::B(future::ok(future::Loop::Break(future::ok(Either::B(
+                            buffer,
+                        ))))),
                     },
                 )
             })
-        },
-    )
-    .flatten()
-    .map(move |buffer| match buffer {
-        Either::B(Buffer::Cursor(cursor)) => (name, Part::Text(Bytes::from(cursor.into_inner()))),
-        Either::B(Buffer::File(file)) => {
-            let sanitized_file_name = match file_name_opt {
-                Some(ref s) => sanitize_filename::sanitize(s),
-                None => {
-                    let uuid = uuid::Uuid::new_v4().to_simple();
-                    match mime_guess::get_mime_extensions(&mime_type).and_then(|x| x.first()) {
-                        Some(ext) => format!("{}.{}", uuid, ext),
-                        None => uuid.to_string(),
+        })
+        .flatten()
+        .map(move |buffer| match buffer {
+            Either::B(Buffer::Cursor(cursor)) => {
+                (name, Part::Text(Bytes::from(cursor.into_inner())))
+            }
+            Either::B(Buffer::File(file)) => {
+                let sanitized_file_name = match file_name_opt {
+                    Some(ref s) => sanitize_filename::sanitize(s),
+                    None => {
+                        let uuid = uuid::Uuid::new_v4().to_simple();
+                        match mime_guess::get_mime_extensions(&mime_type).and_then(|x| x.first()) {
+                            Some(ext) => format!("{}.{}", uuid, ext),
+                            None => uuid.to_string(),
+                        }
                     }
-                }
-            };
-            (
-                name,
-                Part::File(Ok(File {
-                    inner: file,
-                    sanitized_file_name,
-                    original_file_name: file_name_opt,
-                })),
-            )
-        }
-        Either::A(FileTooLarge { limit }) => {
-            (name, Part::File(Err(Error::FileTooLarge { limit, file_name: file_name_opt })))
-        }
-    });
+                };
+                (
+                    name,
+                    Part::File(Ok(File {
+                        inner: file,
+                        sanitized_file_name,
+                        original_file_name: file_name_opt,
+                    })),
+                )
+            }
+            Either::A(FileTooLarge { limit }) => {
+                (name, Part::File(Err(Error::FileTooLarge { limit, file_name: file_name_opt })))
+            }
+        });
 
     Either::B(rt)
 }
