@@ -8,9 +8,9 @@ Provides some configuration options in [PartsConfig](struct.PartsConfig.html):
 
 * **text_limit**: Any text field data larger than this number of bytes will be saved as a tempfile
 * **file_limit**: Any file field data larger than this number of bytes will be discarded/ignored
-* **file_fields**: Always treat fields with these names as file fields
+* **file_fields**: Treat fields with these names as file fields
+* **text_fields**: Treat fields with these names as text fields
 * **temp_dir**: Use this folder as the tmp directory, rather than `tempfile`'s default
-
 
 # Usage
 
@@ -22,7 +22,7 @@ pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_w
 
     let file_parts = parts
         .files
-        .remove("file")
+        .take("file")
         .pop()
         .and_then(|f| f.persist("/tmp").ok())
         .map(|f| format!("File uploaded to: {}", f.display()))
@@ -33,7 +33,7 @@ pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_w
     Ok(actix_web::HttpResponse::Ok().body(body))
 }
 
-fn main() -> Result<(), Box<::std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
             .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1_000_000)))
@@ -181,6 +181,10 @@ impl FileParts {
 }
 
 impl File {
+    pub fn into_inner(self) -> NamedTempFile {
+        self.inner
+    }
+
     /// The filename provided in the multipart/form-data request
     pub fn original_file_name(&self) -> Option<&str> {
         self.original_file_name.as_ref().map(|x| x.as_str())
@@ -226,6 +230,7 @@ pub struct PartsConfig {
     text_limit: Option<usize>,
     file_limit: Option<usize>,
     file_fields: Option<Vec<String>>,
+    text_fields: Option<Vec<String>>,
     temp_dir: Option<PathBuf>,
 }
 
@@ -242,9 +247,15 @@ impl PartsConfig {
         self
     }
 
-    /// Any form names that should always be interpreted as files
+    /// Any form names that should be interpreted as files
     pub fn with_file_fields(mut self, file_fields: Vec<String>) -> Self {
         self.file_fields = Some(file_fields);
+        self
+    }
+
+    /// Any form names that should be interpreted as inline texts
+    pub fn with_text_fields(mut self, text_fields: Vec<String>) -> Self {
+        self.text_fields = Some(text_fields);
         self
     }
 
@@ -346,16 +357,23 @@ fn handle_field(
 
     let mime_type = field.content_type().clone();
 
-    let buffer_fut = match (
-        file_name_opt.as_ref(),
-        opt_cfg
-            .as_ref()
-            .iter()
-            .map(|x| x.file_fields.iter().flatten())
-            .flatten()
-            .any(|x| x == &name),
-    ) {
-        (Some(_), _) | (_, true) => Either::A(new_temp_file(opt_cfg.clone()).map(Buffer::File)),
+    let marked_as_file = opt_cfg
+        .as_ref()
+        .iter()
+        .map(|x| x.file_fields.iter().flatten())
+        .flatten()
+        .any(|x| x == &name);
+
+    let marked_as_text = opt_cfg
+        .as_ref()
+        .iter()
+        .map(|x| x.text_fields.iter().flatten())
+        .flatten()
+        .any(|x| x == &name);
+
+    let buffer_fut = match file_name_opt.as_ref() {
+        Some(_) if !marked_as_text => Either::A(new_temp_file(opt_cfg.clone()).map(Buffer::File)),
+        None if marked_as_file => Either::A(new_temp_file(opt_cfg.clone()).map(Buffer::File)),
         _ => Either::B(future::ok(Buffer::Cursor(Cursor::new(Vec::new())))),
     };
 
