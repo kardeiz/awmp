@@ -389,16 +389,6 @@ fn handle_field(
 
                             len += bytes.len();
 
-                            if let Some(limit) = opt_cfg.as_ref().and_then(|x| x.file_limit) {
-                                if len > limit {
-                                    if let Buffer::File(_) = buffer {
-                                        return Either::B(future::ok(future::Loop::Break(
-                                            future::ok(Either::A(FileTooLarge { limit })),
-                                        )));
-                                    }
-                                }
-                            }
-
                             let mut opt_cursor = None;
 
                             let buffer_fut = if opt_cfg
@@ -432,6 +422,15 @@ fn handle_field(
                                     )))))
                                 }
                                 Buffer::File(mut file) => {
+                                    if let Some(limit) = opt_cfg.as_ref().and_then(|x| x.file_limit)
+                                    {
+                                        if len > limit {
+                                            return future::Loop::Break(future::ok(Either::A(
+                                                FileTooLarge { limit },
+                                            )));
+                                        }
+                                    }
+
                                     let rt = web::block(move || {
                                         let cursor_bytes = opt_cursor
                                             .as_ref()
