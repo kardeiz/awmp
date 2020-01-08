@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 */
 
 use actix_multipart::{Field, Multipart};
-use actix_web::{dev, error, http, web, FromRequest, HttpRequest};
+use actix_web_v1::{dev, error, http, web, FromRequest, HttpRequest};
 use bytes::Bytes;
 use futures::{
     future::{self, Either},
@@ -267,7 +267,7 @@ impl PartsConfig {
 }
 
 impl FromRequest for Parts {
-    type Error = actix_web::Error;
+    type Error = actix_web_v1::Error;
     type Future = Box<dyn Future<Item = Self, Error = Self::Error>>;
     type Config = PartsConfig;
 
