@@ -1,6 +1,6 @@
-use actix_web::FromRequest;
+use actix_web_v1::{web, App, Error, FromRequest, HttpResponse, HttpServer};
 
-pub fn upload(parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
+pub fn upload(parts: awmp::Parts) -> Result<HttpResponse, Error> {
     let qs = parts.texts.to_query_string();
 
     let files = parts
@@ -18,14 +18,14 @@ pub fn upload(parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::
 
     let body = format!("Text parts: {}, File parts: {}\r\n", &qs, &files);
 
-    Ok(actix_web::HttpResponse::Ok().body(body))
+    Ok(HttpResponse::Ok().body(body))
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    actix_web::HttpServer::new(move || {
-        actix_web::App::new()
-            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(10)))
-            .route("/", actix_web::web::post().to(upload))
+fn main() -> Result<(), std::io::Error> {
+    HttpServer::new(move || {
+        App::new()
+            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(10000)))
+            .route("/", web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
     .run()?;

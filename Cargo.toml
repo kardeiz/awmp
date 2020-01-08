@@ -1,7 +1,7 @@
 [package]
 authors = ["Jacob Brown <kardeiz@gmail.com>"]
 name = "awmp"
-version = "0.4.1"
+version = "0.5.0"
 description = "An easy to use wrapper around multipart/form-data for Actix web"
 keywords = ["actix", "actix-web", "multipart"]
 license = "MIT"
@@ -11,14 +11,17 @@ edition = "2018"
 documentation = "https://docs.rs/awmp"
 
 [features]
-default = ["v1"]
-v1 = ["actix-web-v1"]
+default = ["v2"]
+v1 = ["actix-web-v1", "futures-v01", "actix-multipart-v01"]
+v2 = ["actix-web-v2", "futures-v03", "actix-multipart-v02"]
 
 [dependencies]
 actix-web-v1 = { version = "1", package = "actix-web", optional = true }
 actix-web-v2 = { version = "2", package = "actix-web", optional = true }
-actix-multipart = "0.1"
-futures = "0.1"
+futures-v01 = { version = "0.1", package = "futures", optional = true }
+futures-v03 = { version = "0.3", package = "futures", optional = true }
+actix-multipart-v01 = { version = "0.1", package = "actix-multipart", optional = true }
+actix-multipart-v02 = { version = "0.2", package = "actix-multipart", optional = true }
 mime = "0.3"
 mime_guess = "2"
 tempfile = "3.1"
@@ -30,3 +33,6 @@ sanitize-filename = "0.2"
 [dependencies.uuid]
 features = ["v4"]
 version = "0.7"
+
+[dev-dependencies]
+actix-rt = { version = "1" }
