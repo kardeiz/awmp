@@ -27,12 +27,12 @@ mime_guess = "2"
 tempfile = "3.1"
 url = "2"
 flate2 = "1"
-bytes = "0.4"
+bytes = "0.5"
 sanitize-filename = "0.2"
 
 [dependencies.uuid]
 features = ["v4"]
-version = "0.7"
+version = "0.8"
 
 [dev-dependencies]
 actix-rt = { version = "1" }
