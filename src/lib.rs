@@ -25,9 +25,9 @@ awmp = { version = "0.5", default-features = false, features = ["v1"] }
 ## Example
 
 ```rust,no_run
-use actix_web::FromRequest;
+use actix_web::{web, App, Error, FromRequest, HttpResponse, HttpServer};
 
-pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
+async fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_web::Error> {
     let qs = parts.texts.to_query_string();
 
     let file_parts = parts
@@ -43,16 +43,16 @@ pub fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix_w
     Ok(actix_web::HttpResponse::Ok().body(body))
 }
 
-fn main() -> Result<(), std::io::Error> {
+#[actix_rt::main]
+async fn main() -> Result<(), std::io::Error> {
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
             .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1_000_000)))
             .route("/", actix_web::web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
-    .run()?;
-
-    Ok(())
+    .run()
+    .await
 }
 ```
 */
