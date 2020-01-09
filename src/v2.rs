@@ -12,7 +12,7 @@ impl FromRequest for Parts {
     type Config = PartsConfig;
 
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
-        let opt_cfg = req.app_data::<PartsConfig>().cloned().map(web::Data::new);
+        let opt_cfg = req.app_data::<web::Data<PartsConfig>>().cloned();
 
         Box::pin(Multipart::from_request(req, payload).and_then(move |mp| {
             mp.map_err(error::ErrorInternalServerError)
