@@ -127,6 +127,18 @@ pub struct File {
     sanitized_file_name: String,
 }
 
+impl AsRef<NamedTempFile> for File {
+    fn as_ref(&self) -> &NamedTempFile {
+        &self.inner
+    }
+}
+
+impl AsMut<NamedTempFile> for File {
+    fn as_mut(&mut self) -> &mut NamedTempFile {
+        &mut self.inner
+    }
+}
+
 impl TextParts {
     pub fn into_inner(self) -> Vec<(String, Bytes)> {
         self.0
