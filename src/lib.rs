@@ -167,6 +167,11 @@ impl TextParts {
 
         qs.finish()
     }
+    
+    /// Returns `HashMap`  of field names and values
+    pub fn as_hash_map(&self) -> HashMap<_, _> {
+        self.as_pairs().into_iter().collect()
+    }
 }
 
 impl FileParts {
