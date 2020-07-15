@@ -63,6 +63,7 @@ use tempfile::NamedTempFile;
 
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
 #[cfg(feature = "v1")]
 pub mod v1;
@@ -169,7 +170,8 @@ impl TextParts {
     }
     
     /// Returns `HashMap`  of field names and values
-    pub fn as_hash_map(&self) -> HashMap<_, _> {
+    /// NOTE: this will discard the first of multiple values for a key
+    pub fn as_hash_map(&self) -> HashMap {
         self.as_pairs().into_iter().collect()
     }
 }
