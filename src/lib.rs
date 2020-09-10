@@ -225,12 +225,29 @@ impl File {
         &self.sanitized_file_name
     }
 
+    #[deprecated(
+        since = "0.5.4",
+        note = "Please use the 'persist_in' function instead"
+    )]
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
         let new_path = dir.as_ref().join(&self.sanitized_file_name);
         self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
     }
+
+    /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
+    /// the full path
+    pub fn persist_in<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
+        let new_path = dir.as_ref().join(&self.sanitized_file_name);
+        self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
+    }
+
+    /// Persist the tempfile at the specified file path.
+    pub fn persist_at<P: AsRef<Path>>(self, path: P) -> Result<std::fs::File, Error> {
+        self.inner.persist(path).map_err(Error::TempFilePersistError)
+    }
+
 }
 
 #[cfg(unix)]
@@ -245,7 +262,7 @@ impl File {
         let permissions = std::fs::Permissions::from_mode(mode);
         std::fs::set_permissions(self.inner.path(), permissions).map_err(Error::Io)?;
         let new_path = dir.as_ref().join(&self.sanitized_file_name);
-        self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
+        self.persist_in(&new_path)
     }
 
     /// Persist the tempfile with 644 permissions on Unix
