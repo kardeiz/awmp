@@ -225,10 +225,7 @@ impl File {
         &self.sanitized_file_name
     }
 
-    #[deprecated(
-        since = "0.5.4",
-        note = "Please use the 'persist_in' function instead"
-    )]
+    #[deprecated(since = "0.5.4", note = "Please use the 'persist_in' function instead")]
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
@@ -247,7 +244,6 @@ impl File {
     pub fn persist_at<P: AsRef<Path>>(self, path: P) -> Result<std::fs::File, Error> {
         self.inner.persist(path).map_err(Error::TempFilePersistError)
     }
-
 }
 
 #[cfg(unix)]
