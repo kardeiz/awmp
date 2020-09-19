@@ -1,6 +1,6 @@
 use super::*;
-use actix_multipart_v01::{Field, Multipart};
-use actix_web_v1::{dev, error, http, web, Error as ActixWebError, FromRequest, HttpRequest};
+use actix_multipart::{Field, Multipart};
+use actix_web::{dev, error, http, web, Error as ActixWebError, FromRequest, HttpRequest};
 use futures_v01::{
     future::{self, Either},
     Future, IntoFuture, Stream,

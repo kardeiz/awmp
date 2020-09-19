@@ -1,6 +1,6 @@
 use super::*;
-use actix_multipart_v02::{Field, Multipart};
-use actix_web_v2::{dev, error, http, web, Error as ActixWebError, FromRequest, HttpRequest};
+use actix_multipart::{Field, Multipart};
+use actix_web::{dev, error, http, web, Error as ActixWebError, FromRequest, HttpRequest};
 use futures_v03::{
     future::{Future, TryFutureExt},
     stream::TryStreamExt,
