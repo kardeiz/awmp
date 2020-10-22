@@ -8,7 +8,7 @@ pub async fn upload(parts: awmp::Parts) -> Result<HttpResponse, Error> {
         .into_inner()
         .into_iter()
         .flat_map(|(name, res_tf)| res_tf.map(|x| (name, x)))
-        .map(|(name, tf)| tf.persist_in("/tmp").map(|f| (name, f)))
+        .map(|(name, tf)| tf.persist_in(std::env::temp_dir()).map(|f| (name, f)))
         .collect::<Result<Vec<_>, _>>()
         .unwrap_or_default()
         .into_iter()
