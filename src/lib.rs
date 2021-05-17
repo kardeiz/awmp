@@ -251,6 +251,11 @@ impl File {
     #[deprecated(since = "0.5.4", note = "Please use the 'persist_in' function instead")]
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
+    ///
+    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// Also neither the file contents nor the containing directory are
+    /// synchronized, so the update may not yet have reached the disk when
+    /// `persist` returns.
     pub fn persist<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
         let new_path = dir.as_ref().join(&self.sanitized_file_name);
         self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
@@ -258,12 +263,22 @@ impl File {
 
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
+    ///
+    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// Also neither the file contents nor the containing directory are
+    /// synchronized, so the update may not yet have reached the disk when
+    /// `persist_in` returns.
     pub fn persist_in<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
         let new_path = dir.as_ref().join(&self.sanitized_file_name);
         self.inner.persist(&new_path).map(|_| new_path).map_err(Error::TempFilePersistError)
     }
 
     /// Persist the tempfile at the specified file path.
+    ///
+    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// Also neither the file contents nor the containing directory are
+    /// synchronized, so the update may not yet have reached the disk when
+    /// `persist_at` returns.
     pub fn persist_at<P: AsRef<Path>>(self, path: P) -> Result<std::fs::File, Error> {
         self.inner.persist(path).map_err(Error::TempFilePersistError)
     }
@@ -272,6 +287,11 @@ impl File {
 #[cfg(unix)]
 impl File {
     /// Persist the tempfile with specific permissions on Unix
+    ///
+    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// Also neither the file contents nor the containing directory are
+    /// synchronized, so the update may not yet have reached the disk when
+    /// `persist_with_permissions` returns.
     pub fn persist_with_permissions<P: AsRef<Path>>(
         self,
         dir: P,
@@ -285,6 +305,11 @@ impl File {
     }
 
     /// Persist the tempfile with 644 permissions on Unix
+    ///
+    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// Also neither the file contents nor the containing directory are
+    /// synchronized, so the update may not yet have reached the disk when
+    /// `persist_with_open_permissions` returns.
     pub fn persist_with_open_permissions<P: AsRef<Path>>(self, dir: P) -> Result<PathBuf, Error> {
         self.persist_with_permissions(dir, 0o644)
     }
