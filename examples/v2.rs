@@ -25,7 +25,7 @@ pub async fn upload(parts: awmp::Parts) -> Result<HttpResponse, Error> {
 async fn main() -> Result<(), std::io::Error> {
     HttpServer::new(move || {
         App::new()
-            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1)))
+            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(100000)))
             .route("/", web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
