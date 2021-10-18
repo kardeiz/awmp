@@ -283,7 +283,7 @@ impl File {
         self.inner.persist(path).map_err(Error::TempFilePersistError)
     }
 
-    /// Create a file from the given buffer.
+    /// Create a File from the given buffer.
     /// Could be used in testing scenarios.
     pub fn create_from_buffer<P: AsRef<Path>>(buf: &[u8], original_file_name: String, temp_dir: Option<P>) -> Result<Self, Error> {
         let mut file = match temp_dir {
@@ -300,7 +300,7 @@ impl File {
         })
     }
 
-    /// Create a file with a given size.
+    /// Create a File with a given size.
     /// Could be used in testing scenarios.
     pub fn create_with_size<P: AsRef<Path>>(size_bytes: usize, original_file_name: String, temp_dir: Option<P>) -> Result<Self, Error> {
         let buf = std::iter::repeat(1u8).take(size_bytes).collect::<Vec<u8>>();
