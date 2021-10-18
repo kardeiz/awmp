@@ -252,7 +252,7 @@ impl File {
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist` returns.
@@ -264,7 +264,7 @@ impl File {
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_in` returns.
@@ -275,7 +275,7 @@ impl File {
 
     /// Persist the tempfile at the specified file path.
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_at` returns.
@@ -288,7 +288,7 @@ impl File {
 impl File {
     /// Persist the tempfile with specific permissions on Unix
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_with_permissions` returns.
@@ -306,7 +306,7 @@ impl File {
 
     /// Persist the tempfile with 644 permissions on Unix
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_with_open_permissions` returns.
