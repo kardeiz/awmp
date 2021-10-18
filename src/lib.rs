@@ -282,6 +282,30 @@ impl File {
     pub fn persist_at<P: AsRef<Path>>(self, path: P) -> Result<std::fs::File, Error> {
         self.inner.persist(path).map_err(Error::TempFilePersistError)
     }
+
+    /// Create a file from the given buffer.
+    /// Could be used in testing scenarios.
+    pub fn create_from_buffer<P: AsRef<Path>>(buf: &[u8], original_file_name: String, temp_dir: Option<P>) -> Result<Self, Error> {
+        let mut file = match temp_dir {
+            Some(dir) => NamedTempFile::new_in(dir).map_err(Error::Io)?,
+            None => NamedTempFile::new().map_err(Error::Io)?,
+        };
+
+        file.write(buf).map_err(Error::Io)?;
+
+        Ok(Self {
+            inner: file,
+            original_file_name: Some(original_file_name.clone()),
+            sanitized_file_name: sanitize_filename::sanitize(original_file_name),
+        })
+    }
+
+    /// Create a file with a given size.
+    /// Could be used in testing scenarios.
+    pub fn create_with_size<P: AsRef<Path>>(size_bytes: usize, original_file_name: String, temp_dir: Option<P>) -> Result<Self, Error> {
+        let buf = std::iter::repeat(1u8).take(size_bytes).collect::<Vec<u8>>();
+        Self::create_from_buffer(&buf, original_file_name, temp_dir)
+    }
 }
 
 #[cfg(unix)]
@@ -371,4 +395,46 @@ enum Buffer {
 
 struct FileTooLarge {
     limit: usize,
+}
+
+#[cfg(test)]
+mod test {
+    use std::iter;
+    use crate::File;
+
+    #[test]
+    pub fn create_file_with_size() {
+        // ARRANGE
+        let file_name = "my name jeff.txt".to_string();
+        let sanitized_file_name = sanitize_filename::sanitize(file_name.clone());
+        let size = 20usize;
+        let expected_content = iter::repeat(1u8).take(size).collect::<Vec<_>>();
+
+        // ACT
+        let file = File::create_with_size::<String>(size, file_name.clone(), None).expect("Can not create a file");
+        let tempfile_path = file.inner.path().to_path_buf();
+        let content = std::fs::read(tempfile_path).expect("Can not read temporary file");
+
+        // ASSERT
+        assert_eq!(expected_content, content);
+        assert_eq!(file.original_file_name, Some(file_name));
+        assert_eq!(file.sanitized_file_name, sanitized_file_name);
+    }
+
+    #[test]
+    pub fn create_file_then_persist() {
+        // ARRANGE
+        let file_name = "create_file_then_persist.txt".to_string();
+        let file_path = ".";
+        let size = 20usize;
+        let expected_content = iter::repeat(1u8).take(size).collect::<Vec<_>>();
+
+        // ACT
+        let file = File::create_with_size(size, file_name.clone(), Some(file_path)).expect("Can not create a file");
+        file.persist_in(&file_path).expect("Failed persisting file");
+        let content = std::fs::read(format!("{}/{}", file_path, file_name)).expect("Can not read temporary file");
+
+        // ASSERT
+        assert_eq!(expected_content, content);
+    }
 }

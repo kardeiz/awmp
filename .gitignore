@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 Cargo.lock
+
+# File made from tests
+create_file_then_persist.txt
