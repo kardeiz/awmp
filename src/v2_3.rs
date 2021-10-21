@@ -149,24 +149,7 @@ async fn handle_field(
         }
         (None, Buffer::Cursor(cursor)) => Ok((name, Part::Text(Bytes::from(cursor.into_inner())))),
         (None, Buffer::File(file)) => {
-            let sanitized_file_name = match file_name_opt {
-                Some(ref s) => sanitize_filename::sanitize(s),
-                None => {
-                    let uuid = uuid::Uuid::new_v4().to_simple();
-                    match mime_guess::get_mime_extensions(&mime_type).and_then(|x| x.first()) {
-                        Some(ext) => format!("{}.{}", uuid, ext),
-                        None => uuid.to_string(),
-                    }
-                }
-            };
-            Ok((
-                name,
-                Part::File(Ok(File {
-                    inner: file,
-                    sanitized_file_name,
-                    original_file_name: file_name_opt,
-                })),
-            ))
+            Ok((name, Part::File(Ok(File::new(file, file_name_opt, Some(&mime_type))))))
         }
     }
 }
