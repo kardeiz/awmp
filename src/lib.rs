@@ -59,7 +59,8 @@ async fn main() -> Result<(), std::io::Error> {
 
 use bytes::Bytes;
 
-use tempfile::NamedTempFile;
+/// Re-export of `tempfile::NamedTempFile`
+pub use tempfile::NamedTempFile;
 
 use std::collections::HashMap;
 use std::io::{Cursor, Write};
@@ -252,7 +253,7 @@ impl File {
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist` returns.
@@ -264,7 +265,7 @@ impl File {
     /// Persist the tempfile to an existing directory. Uses the sanitized file name and returns
     /// the full path
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_in` returns.
@@ -275,12 +276,39 @@ impl File {
 
     /// Persist the tempfile at the specified file path.
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_at` returns.
     pub fn persist_at<P: AsRef<Path>>(self, path: P) -> Result<std::fs::File, Error> {
         self.inner.persist(path).map_err(Error::TempFilePersistError)
+    }
+
+    pub fn new(
+        file: NamedTempFile,
+        original_file_name: Option<String>,
+        mime_type: Option<&mime::Mime>,
+    ) -> Self {
+        let sanitized_file_name = match original_file_name {
+            Some(ref s) => sanitize_filename::sanitize(s),
+            None => {
+                let uuid = uuid::Uuid::new_v4().to_simple();
+
+                match mime_type
+                    .and_then(|mt| mime_guess::get_mime_extensions(mt))
+                    .and_then(|x| x.first())
+                {
+                    Some(ext) => format!("{}.{}", uuid, ext),
+                    None => uuid.to_string(),
+                }
+            }
+        };
+
+        File { inner: file, sanitized_file_name, original_file_name }
+    }
+
+    pub fn new_with_file_name(file: NamedTempFile, original_file_name: String) -> Self {
+        Self::new(file, Some(original_file_name), None)
     }
 }
 
@@ -288,7 +316,7 @@ impl File {
 impl File {
     /// Persist the tempfile with specific permissions on Unix
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_with_permissions` returns.
@@ -306,7 +334,7 @@ impl File {
 
     /// Persist the tempfile with 644 permissions on Unix
     ///
-    /// Note: Because of how temporary file is stored, it cannot be persisted across filesystems.
+    /// NOTE: Because of how temporary file is stored, it cannot be persisted across filesystems.
     /// Also neither the file contents nor the containing directory are
     /// synchronized, so the update may not yet have reached the disk when
     /// `persist_with_open_permissions` returns.
@@ -371,4 +399,58 @@ enum Buffer {
 
 struct FileTooLarge {
     limit: usize,
+}
+
+#[cfg(test)]
+mod test {
+    use tempfile::NamedTempFile;
+
+    use crate::File;
+    use std::{io::Write, iter};
+
+    #[test]
+    pub fn create_file_with_size() {
+        // ARRANGE
+        let file_name = "my name jeff.txt".to_string();
+        let sanitized_file_name = sanitize_filename::sanitize(file_name.clone());
+
+        let size = 20usize;
+        let expected_content = iter::repeat(1u8).take(size).collect::<Vec<_>>();
+
+        let mut name_tempfile = NamedTempFile::new().expect("Failed creating temp file.");
+        name_tempfile.write_all(&expected_content).expect("Failed writing to file.");
+
+        // ACT
+        let file = File::new_with_file_name(name_tempfile, file_name.clone());
+        let tempfile_path = file.inner.path().to_path_buf();
+        let content = std::fs::read(tempfile_path).expect("Can not read temporary file");
+
+        // ASSERT
+        assert_eq!(expected_content, content);
+        assert_eq!(file.original_file_name, Some(file_name));
+        assert_eq!(file.sanitized_file_name, sanitized_file_name);
+    }
+
+    #[test]
+    pub fn create_file_then_persist() {
+        // ARRANGE
+        let file_name = "create_file_then_persist.txt".to_string();
+        let file_path = std::env::temp_dir();
+
+        let size = 20usize;
+        let expected_content = iter::repeat(1u8).take(size).collect::<Vec<_>>();
+
+        let mut tempfile = NamedTempFile::new().expect("Failed creating temp file.");
+        tempfile.write_all(&expected_content).expect("Failed writing to file.");
+
+        // ACT
+        let file = File::new_with_file_name(tempfile, file_name.clone());
+        file.persist_in(&file_path).expect("Failed persisting file");
+
+        // ASSERT
+        let content = std::fs::read(format!("{}/{}", file_path.to_string_lossy(), file_name))
+            .expect("Can not read temporary file");
+
+        assert_eq!(expected_content, content);
+    }
 }
