@@ -187,7 +187,7 @@ impl TextParts {
             .iter()
             .flat_map(|(key, val)| std::str::from_utf8(val).map(|val| (key.as_str(), val)))
         {
-            qs.append_pair(&key, &val);
+            qs.append_pair(key, val);
         }
 
         qs.finish()
@@ -241,7 +241,7 @@ impl File {
 
     /// The filename provided in the multipart/form-data request
     pub fn original_file_name(&self) -> Option<&str> {
-        self.original_file_name.as_ref().map(|x| x.as_str())
+        self.original_file_name.as_deref()
     }
 
     /// The sanitized version of the original file name, or generated name if none provided
