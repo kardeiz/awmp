@@ -3,7 +3,7 @@
 [![Docs](https://docs.rs/awmp/badge.svg)](https://docs.rs/crate/awmp/)
 [![Crates.io](https://img.shields.io/crates/v/awmp.svg)](https://crates.io/crates/awmp)
 
-A convenience library for working with multipart/form-data in [`actix-web`](https://docs.rs/actix-web) 1.x, 2.x, or 3.x.
+A convenience library for working with multipart/form-data in [`actix-web`](https://docs.rs/actix-web) 1.x, 2.x, 3.x, or 4.x.
 
 This library uses [`actix-multipart`](https://docs.rs/actix-multipart) internally, and is not a replacement
 for `actix-multipart`. It saves multipart file data to tempfiles and collects text data, handling all blocking I/O operations.
@@ -18,12 +18,12 @@ Provides some configuration options in [PartsConfig](struct.PartsConfig.html):
 
 ## Usage
 
-This crate supports both major versions of `actix-web`, 1.x, 2.x, and 3.x. It supports 3.x by default.
+This crate supports both major versions of `actix-web`, 1.x, 2.x, 3.x, and 4.x. It supports 4.x by default.
 
 To use with `actix-web` 1.x, add the following to your `Cargo.toml`:
 
 ```toml
-awmp = { version = "0.6", default-features = false, features = ["v1"] }
+awmp = { version = "0.8", default-features = false, features = ["v1"] }
 ```
 
 ### Example
@@ -51,7 +51,7 @@ async fn upload(mut parts: awmp::Parts) -> Result<actix_web::HttpResponse, actix
 async fn main() -> Result<(), std::io::Error> {
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
-            .data(awmp::Parts::configure(|cfg| cfg.with_file_limit(1_000_000)))
+            .data(awmp::PartsConfig::default().with_file_limit(100000))
             .route("/", actix_web::web::post().to(upload))
     })
     .bind("0.0.0.0:3000")?
@@ -60,6 +60,6 @@ async fn main() -> Result<(), std::io::Error> {
 }
 ```
 
-Current version: 0.6.1
+Current version: 0.8.0
 
 License: MIT
