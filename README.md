@@ -60,6 +60,6 @@ async fn main() -> Result<(), std::io::Error> {
 }
 ```
 
-Current version: 0.8.0
+Current version: 0.8.1
 
 License: MIT

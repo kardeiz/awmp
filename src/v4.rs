@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use super::*;
 use actix_multipart::{Field, Multipart};
 use actix_web::{dev, error, web, Error as ActixWebError, FromRequest, HttpRequest};
@@ -6,13 +7,81 @@ use futures_v03::{
     stream::TryStreamExt,
 };
 
+#[derive(Debug, Clone)]
+pub struct PartsConfig {
+    text_limit: Option<usize>,
+    file_limit: Option<usize>,
+    file_fields: Option<Arc<[String]>>,
+    text_fields: Option<Arc<[String]>>,
+    temp_dir: Option<Arc<Path>>,
+}
+
+impl Default for PartsConfig {
+    fn default() -> Self {
+        PartsConfig {
+            text_limit: None,
+            file_limit: None,
+            file_fields: None,
+            text_fields: None,
+            temp_dir: None,
+        }
+    }
+}
+
+impl PartsConfig {
+    /// Any text fields above this limit will be converted to file fields
+    pub fn with_text_limit(mut self, text_limit: usize) -> Self {
+        self.text_limit = Some(text_limit);
+        self
+    }
+
+    /// Any file fields above this limit will be ignored
+    pub fn with_file_limit(mut self, file_limit: usize) -> Self {
+        self.file_limit = Some(file_limit);
+        self
+    }
+
+    /// Any form names that should be interpreted as files
+    pub fn with_file_fields(mut self, file_fields: Vec<String>) -> Self {
+        self.file_fields = Some(file_fields.into());
+        self
+    }
+
+    /// Any form names that should be interpreted as inline texts
+    pub fn with_text_fields(mut self, text_fields: Vec<String>) -> Self {
+        self.text_fields = Some(text_fields.into());
+        self
+    }
+
+    /// To use a different location than the tempfile default
+    pub fn with_temp_dir<I: Into<PathBuf>>(mut self, temp_dir: I) -> Self {
+        self.temp_dir = Some(temp_dir.into().into());
+        self
+    }
+
+    fn from_req(req: &HttpRequest) -> Option<Self> {
+        req.app_data::<Self>().cloned()
+            .or_else(|| req.app_data::<web::Data<Self>>().map(Self::from_wrapped))
+    }
+
+    fn from_wrapped(wrapped: &web::Data<Self>) -> Self {
+        Self {
+            text_limit: wrapped.text_limit,
+            file_limit: wrapped.file_limit,
+            file_fields: wrapped.file_fields.clone(),
+            text_fields: wrapped.text_fields.clone(),
+            temp_dir: wrapped.temp_dir.clone(),
+        }
+    }
+}
+
 impl FromRequest for Parts {
     type Error = ActixWebError;
     type Future = std::pin::Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
 
     fn from_request(req: &HttpRequest, payload: &mut dev::Payload) -> Self::Future {
         
-        let opt_cfg = req.app_data::<web::Data<PartsConfig>>().cloned();
+        let opt_cfg = PartsConfig::from_req(req);
 
         Box::pin(Multipart::from_request(req, payload).and_then(move |mp| {
             mp.map_err(error::ErrorInternalServerError)
@@ -38,7 +107,7 @@ impl FromRequest for Parts {
 }
 
 async fn new_temp_file(
-    opt_cfg: Option<web::Data<PartsConfig>>,
+    opt_cfg: Option<PartsConfig>,
 ) -> Result<NamedTempFile, error::Error> {
     Ok(web::block(move || match opt_cfg.as_ref().and_then(|x| x.temp_dir.as_ref()) {
         Some(temp_dir) => NamedTempFile::new_in(temp_dir),
@@ -49,7 +118,7 @@ async fn new_temp_file(
 }
 
 async fn handle_field(
-    opt_cfg: Option<web::Data<PartsConfig>>,
+    opt_cfg: Option<PartsConfig>,
     mut field: Field,
 ) -> Result<(String, Part), error::Error> {
     let mut name_opt = None;
@@ -74,16 +143,16 @@ async fn handle_field(
 
     let marked_as_file = opt_cfg
         .as_ref()
+        .and_then(|x| x.file_fields.as_ref())
         .iter()
-        .map(|x| x.file_fields.iter().flatten())
-        .flatten()
+        .flat_map(|x| x.iter() )
         .any(|x| x == &name);
 
     let marked_as_text = opt_cfg
         .as_ref()
+        .and_then(|x| x.text_fields.as_ref())
         .iter()
-        .map(|x| x.text_fields.iter().flatten())
-        .flatten()
+        .flat_map(|x| x.iter() )
         .any(|x| x == &name);
 
     let mut buffer = match file_name_opt.as_ref() {

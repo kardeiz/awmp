@@ -356,6 +356,7 @@ impl File {
 /// `FromRequest` configurator
 /// 
 /// When setting `App::app_data`, ensure that `PartsConfig` is wrapped in `Data`
+#[cfg(not(feature = "v4"))]
 #[derive(Default, Debug, Clone)]
 pub struct PartsConfig {
     text_limit: Option<usize>,
@@ -365,6 +366,7 @@ pub struct PartsConfig {
     temp_dir: Option<PathBuf>,
 }
 
+#[cfg(not(feature = "v4"))]
 impl PartsConfig {
     /// Any text fields above this limit will be converted to file fields
     pub fn with_text_limit(mut self, text_limit: usize) -> Self {
@@ -396,6 +398,9 @@ impl PartsConfig {
         self
     }
 }
+
+#[cfg(feature = "v4")]
+pub use v4::PartsConfig;
 
 #[derive(Debug)]
 enum Part {
